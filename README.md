@@ -4,7 +4,7 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-主人喵，欢迎来到这个关于大型语言模型（LLM）高效交互的知识宝库！👋 
+欢迎来到这个关于大型语言模型（LLM）高效交互的知识宝库！👋 
 
 ### 🌟 项目愿景
 
