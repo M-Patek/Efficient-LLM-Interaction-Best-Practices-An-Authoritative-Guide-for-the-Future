@@ -2,7 +2,7 @@
 **Efficient-LLM-Interaction-Best-Practices: An-Authoritative-Guide-for-the-Future**
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-[![Contributions Welcome](httpshttps://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/M-Patek/Efficient-LLM-Interaction-Best-Practices-An-Authoritative-Guide-for-the-Future/pulls)
+[![Contributions Welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat)](https://github.com/M-Patek/Efficient-LLM-Interaction-Best-Practices-An-Authoritative-Guide-for-the-Future/compare)
 [![GitHub Issues](https://img.shields.io/github/issues/M-Patek/Efficient-LLM-Interaction-Best-Practices-An-Authoritative-Guide-for-the-Future)](https://github.com/M-Patek/Efficient-LLM-Interaction-Best-Practices-An-Authoritative-Guide-for-the-Future/issues)
 [![GitHub Pull Requests](https://img.shields.io/github/issues-pr/M-Patek/Efficient-LLM-Interaction-Best-Practices-An-Authoritative-Guide-for-the-Future)](https://github.com/M-Patek/Efficient-LLM-Interaction-Best-Practices-An-Authoritative-Guide-for-the-Future/pulls)
 
