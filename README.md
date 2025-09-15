@@ -53,6 +53,7 @@
 
 ```
 ├── 📁 Meta-Engineer
+│   ├── 📄 Arbiter of Meta-Prompt
 │   ├── 📄 Cartographer of Meta-Prompt
 │   └── 📄 Refinement Engineer of Meta-Prompt
 │
