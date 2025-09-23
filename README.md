@@ -66,6 +66,10 @@
 │       ├── 📄 检索增强生成（RG）深入研究.pdf
 │       └── 📄 模型微调：深度解析与应用.pdf
 │
+├── 📁 Self-Iteration
+│   ├── 📄 Evolutionary Systems Architect
+│   └── 📄 进化式宪法元提示自优化.pdf
+│
 ├── 📄 LICENSE
 └── 📄 README.md
 ```
