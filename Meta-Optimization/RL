@@ -123,3 +123,148 @@ if __name__ == "__main__":
     print("\n✅ 生成完毕！")
     print(f"最终状态向量的前10个值: {final_vector[:10]}")
     print(f"这个维度为 {final_vector.shape[0]} 的向量，现在可以作为RL代理神经网络的输入了。")
+
+
+
+import random
+import copy
+
+# ==============================================================================
+# 步骤 1: 为动作准备“素材库”
+# 这些库为动作函数提供了随机选择的内容，使其更加动态。
+# ==============================================================================
+
+ROLE_LIBRARY = [
+    "You are a world-renowned historian specializing in the Renaissance.",
+    "You are a cutting-edge astrophysicist from MIT.",
+    "You are a Michelin 3-star chef with expertise in molecular gastronomy.",
+    "You are a cynical but brilliant detective from a noir film."
+]
+
+CONSTRAINT_LIBRARY = [
+    "Explain your reasoning step-by-step.",
+    "The final answer must be a single paragraph.",
+    "Avoid technical jargon and use simple language.",
+    "Output the result in a JSON format with keys 'item' and 'description'.",
+    "Do not mention your own identity as an AI model."
+]
+
+EXAMPLE_LIBRARY = [
+    {"input": "Company: Apple Inc.", "output": "Industry: Technology"},
+    {"input": "Company: Toyota", "output": "Industry: Automotive"}
+]
+
+TONE_LIBRARY = [
+    "in a formal and professional tone",
+    "in a friendly and conversational tone",
+    "in a witty and slightly sarcastic tone",
+    "in a way that a complete beginner can understand"
+]
+
+
+# ==============================================================================
+# 步骤 2: 实现每个具体的动作函数
+# 每个函数都接收一个结构化提示词字典，并返回一个修改后的新字典。
+# 使用 deepcopy 来确保我们不会意外修改原始提示词。
+# ==============================================================================
+
+def paraphrase_task(prompt: dict) -> dict:
+    """动作1: 核心任务释义 (模拟)"""
+    new_prompt = copy.deepcopy(prompt)
+    # --- 实际应用中，这里会调用LLM API来对任务进行释义 ---
+    # 模拟实现：
+    new_prompt['task'] = f"[Paraphrased] {new_prompt['task']}"
+    print("INFO: Performed paraphrase_task.")
+    return new_prompt
+
+def change_tone(prompt: dict) -> dict:
+    """动作2: 改变语气/风格"""
+    new_prompt = copy.deepcopy(prompt)
+    chosen_tone = random.choice(TONE_LIBRARY)
+    new_prompt['task'] = f"{new_prompt['task']}, {chosen_tone}."
+    print(f"INFO: Performed change_tone, added '{chosen_tone}'.")
+    return new_prompt
+
+def add_expert_role(prompt: dict) -> dict:
+    """动作3: 增加/细化专家角色"""
+    new_prompt = copy.deepcopy(prompt)
+    chosen_role = random.choice(ROLE_LIBRARY)
+    new_prompt['role'] = chosen_role
+    print(f"INFO: Performed add_expert_role, set role to '{chosen_role}'.")
+    return new_prompt
+
+def add_constraint(prompt: dict) -> dict:
+    """动作4: 添加约束条件"""
+    new_prompt = copy.deepcopy(prompt)
+    chosen_constraint = random.choice(CONSTRAINT_LIBRARY)
+    if 'constraints' not in new_prompt:
+        new_prompt['constraints'] = []
+    new_prompt['constraints'].append(chosen_constraint)
+    print(f"INFO: Performed add_constraint, added '{chosen_constraint}'.")
+    return new_prompt
+
+def add_few_shot_example(prompt: dict) -> dict:
+    """动作5: 添加示例"""
+    new_prompt = copy.deepcopy(prompt)
+    chosen_example = random.choice(EXAMPLE_LIBRARY)
+    if 'examples' not in new_prompt:
+        new_prompt['examples'] = []
+    new_prompt['examples'].append(chosen_example)
+    print(f"INFO: Performed add_few_shot_example, added an example.")
+    return new_prompt
+
+# ==============================================================================
+# 步骤 3: 创建动作映射
+# 将整数索引映射到我们上面定义的函数。RL代理将输出这个索引。
+# ==============================================================================
+
+ACTION_MAP = {
+    0: paraphrase_task,
+    1: change_tone,
+    2: add_expert_role,
+    3: add_constraint,
+    4: add_few_shot_example,
+}
+
+# ==============================================================================
+# 步骤 4: 主程序 - 模拟RL代理选择并执行动作
+# ==============================================================================
+if __name__ == "__main__":
+    # 假设这是我们从主循环中得到的、陷入局部最优的提示词
+    initial_structured_prompt = {
+        "role": "You are a helpful assistant.",
+        "task": "Classify the sentiment of the following text.",
+        "constraints": ["The sentiment can be 'positive', 'negative', or 'neutral'."],
+        "examples": []
+    }
+
+    print("="*50)
+    print("🚀 动作执行模拟开始 🚀")
+    print("="*50)
+
+    # 模拟执行5次，每次随机选择一个动作
+    for i in range(5):
+        print(f"\n----------- Iteration {i+1} -----------")
+        
+        # --- 模拟RL代理做出选择 ---
+        # 实际中，这个索引是由RL策略网络根据当前状态预测得出的
+        chosen_action_index = random.choice(list(ACTION_MAP.keys()))
+        action_function = ACTION_MAP[chosen_action_index]
+        
+        print("\n📝 原始提示词:")
+        print(initial_structured_prompt)
+        
+        print(f"\n🤖 RL代理选择的动作: ({chosen_action_index}) -> {action_function.__name__}")
+        
+        # --- 执行动作 ---
+        modified_prompt = action_function(initial_structured_prompt)
+        
+        print("\n✨ 修改后的提示词:")
+        print(modified_prompt)
+        
+        # 为了下一次迭代，我们可以用修改后的版本作为新的起点
+        initial_structured_prompt = modified_prompt
+
+    print("\n="*50)
+    print("🏁 模拟结束 🏁")
+    print("="*50)
