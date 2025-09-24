@@ -1,0 +1,351 @@
+# ==============================================================================
+# 步骤 0: 导入与设置
+# ==============================================================================
+import numpy as np
+from sentence_transformers import SentenceTransformer
+import random
+import copy
+import hashlib
+import json
+from typing import Dict, Any, List, Tuple
+import math
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from collections import namedtuple, deque
+import re
+import os
+import google.generativeai as genai
+
+# --- 加载本地编码器模型 ---
+print("正在加载 SentenceTransformer 模型...")
+ENCODER_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+print("模型加载完毕。")
+
+# --- 配置Google Gemini API ---
+try:
+    # 优先尝试从Google Colab的Secrets功能中安全地获取API密钥
+    from google.colab import userdata
+    GOOGLE_API_KEY = userdata.get('GOOGLE_API_KEY')
+    print("已从 Colab Secrets 加载 API 密钥。")
+except ImportError:
+    # 如果不在Colab环境，则尝试从环境变量或代码中直接读取
+    # 为了安全，强烈建议你使用环境变量来设置密钥
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "在这里填入你的API密钥")
+    if GOOGLE_API_KEY == "在这里填入你的API密钥":
+        print("警告：请在代码中或环境变量中设置你的 GOOGLE_API_KEY。")
+
+# 使用获取到的密钥配置genai库
+genai.configure(api_key=GOOGLE_API_KEY)
+
+print("=" * 60)
+
+# ==============================================================================
+# 步骤 1: LLM API 设置
+# ==============================================================================
+try:
+    from google.colab import userdata
+    # 优先从Colab Secrets获取API密钥
+    GOOGLE_API_KEY = userdata.get('GOOGLE_API_KEY')
+    print("已从 Colab Secrets 加载 API 密钥。")
+except ImportError:
+    # 如果不在Colab环境，请手动填入或使用环境变量
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "在这里填入你的API密钥")
+    if GOOGLE_API_KEY == "在这里填入你的API密钥":
+        print("警告：请在代码中或环境变量中设置你的 GOOGLE_API_KEY。")
+
+genai.configure(api_key=GOOGLE_API_KEY)
+
+
+def call_generator_llm(prompt_dict: Dict[str, Any]) -> str:
+    prompt_string = f"Please execute the following task described in the JSON prompt:\n\n{json.dumps(prompt_dict, indent=2)}"
+    model = genai.GenerativeModel('gemini-1.0-pro')
+    try:
+        response = model.generate_content(prompt_string)
+        return response.text
+    except Exception as e:
+        print(f"调用生成模型时出错: {e}")
+        return ""
+
+def call_evaluator_llm(original_task: str, generated_response: str) -> int:
+    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    evaluator_prompt = f"""
+    As an expert evaluator, your task is to rate the quality of a generated response based on an original task.
+    Please provide a score from 1 to 10, where 1 is extremely poor and 10 is excellent.
+    Your evaluation should consider clarity, relevance, and adherence to any constraints mentioned in the task.
+    Return ONLY the score in the format "Score: X/10".
+
+    ---
+    **Original Task:**
+    "{original_task}"
+
+    **Generated Response to Evaluate:**
+    "{generated_response}"
+    ---
+
+    **Your objective evaluation:**
+    """
+    try:
+        response = model.generate_content(evaluator_prompt)
+        match = re.search(r'Score:\s*(\d+)/10', response.text)
+        if match:
+            return int(match.group(1))
+        else:
+            # 尝试直接解析数字
+            match_num = re.search(r'(\d+)/10', response.text)
+            if match_num:
+                return int(match_num.group(1))
+            print(f"无法从评估器响应中解析分数: {response.text}")
+            return 0
+    except Exception as e:
+        print(f"调用评估模型时出错: {e}")
+        return 0
+
+# (此处省略ActionFactory, DQN, ReplayMemory, DQNAgent类的代码，因为它们没有改变)
+# (请将下面修改后的 PromptOptimizerEnv 替换掉你原有的版本)
+# ==============================================================================
+# 模块 A: 配置与动作空间 (未改变，此处省略)
+# ==============================================================================
+class ActionFactory:
+    ACTION_LIBRARIES={"roles":["You are a world-renowned historian specializing in the Renaissance.","You are a cutting-edge astrophysicist from MIT.","You are a Michelin 3-star chef with expertise in molecular gastronomy.","You are a cynical but brilliant detective from a noir film."],"constraints":["Explain your reasoning step-by-step.","The final answer must be a single paragraph.","Avoid technical jargon and use simple language.","Output the result in a JSON format with keys 'item' and 'description'.","Do not mention your own identity as an AI model."],"examples":[{"input":"Company: Apple Inc.","output":"Industry: Technology"},{"input":"Company: Toyota","output":"Industry: Automotive"}],"tones":["in a formal and professional tone","in a friendly and conversational tone","in a witty and slightly sarcastic tone","in a way that a complete beginner can understand"]}
+    PARAPHRASE_TASK=0
+    CHANGE_TONE=1
+    ADD_EXPERT_ROLE=2
+    ADD_CONSTRAINT=3
+    ADD_FEW_SHOT_EXAMPLE=4
+    ACTION_MAP={PARAPHRASE_TASK:"paraphrase_task",CHANGE_TONE:"change_tone",ADD_EXPERT_ROLE:"add_expert_role",ADD_CONSTRAINT:"add_constraint",ADD_FEW_SHOT_EXAMPLE:"add_few_shot_example",}
+    @staticmethod
+    def _get_unique_choice(current_items:List[Any],library:List[Any])->Any:
+        potential_choices=[item for item in library if item not in current_items]
+        if not potential_choices:return random.choice(library)
+        return random.choice(potential_choices)
+    @staticmethod
+    def apply_action(action_id:int,prompt:Dict[str,Any])->Dict[str,Any]:
+        new_prompt=copy.deepcopy(prompt)
+        if action_id==ActionFactory.PARAPHRASE_TASK:new_prompt['task']=f"[Paraphrased] {new_prompt.get('task','')}"
+        elif action_id==ActionFactory.CHANGE_TONE:
+            chosen_tone=random.choice(ActionFactory.ACTION_LIBRARIES["tones"])
+            new_prompt['task']=f"{new_prompt.get('task','')}, {chosen_tone}."
+        elif action_id==ActionFactory.ADD_EXPERT_ROLE:new_prompt['role']=random.choice(ActionFactory.ACTION_LIBRARIES["roles"])
+        elif action_id==ActionFactory.ADD_CONSTRAINT:
+            constraints=new_prompt.setdefault('constraints',[])
+            choice=ActionFactory._get_unique_choice(constraints,ActionFactory.ACTION_LIBRARIES["constraints"])
+            constraints.append(choice)
+        elif action_id==ActionFactory.ADD_FEW_SHOT_EXAMPLE:
+            examples=new_prompt.setdefault('examples',[])
+            choice=ActionFactory._get_unique_choice(examples,ActionFactory.ACTION_LIBRARIES["examples"])
+            examples.append(choice)
+        return new_prompt
+
+# ==============================================================================
+# 模块 B & C: RL环境类 (已修改)
+# ==============================================================================
+class PromptOptimizerEnv:
+    def __init__(self, initial_prompt: Dict[str, Any]):
+        self.initial_prompt = initial_prompt
+        self.embedding_dim = ENCODER_MODEL.get_sentence_embedding_dimension()
+        self.action_space = list(ActionFactory.ACTION_MAP.keys())
+        self.reset() # reset中会调用_calculate_fitness，所以放在最后
+
+    def reset(self):
+        self.current_prompt = copy.deepcopy(self.initial_prompt)
+        print("正在进行初始适应度评估...")
+        self.metadata = {
+            "fitness": self._calculate_fitness(self.current_prompt),
+            "iterations_stuck": 0
+        }
+        print(f"初始适应度评估完成: {self.metadata['fitness']}/10")
+        return self._create_state_vector()
+
+    def _calculate_fitness(self, prompt: Dict[str, Any]) -> float:
+        print("    - [LLM] 正在调用生成模型...")
+        original_task = prompt.get("task", "")
+        response_text = call_generator_llm(prompt)
+        if not response_text:
+            print("    - [LLM] 生成模型未能返回有效回答，适应度为0。")
+            return 0.0
+        print("    - [LLM] 正在调用评估模型...")
+        score = call_evaluator_llm(original_task, response_text)
+        print(f"    - [LLM] 评估模型给出的分数为: {score}/10")
+        return float(score)
+
+    def _normalize_features(self, features: np.ndarray) -> np.ndarray:
+        max_values = np.array([10.0, 2000, 10, 50])
+        safe_max_values = np.where(max_values == 0, 1, max_values)
+        return features / safe_max_values
+
+    def _create_state_vector(self) -> np.ndarray:
+        prompt = self.current_prompt
+        role_vector = ENCODER_MODEL.encode(prompt.get('role', ''))
+        task_vector = ENCODER_MODEL.encode(prompt.get('task', ''))
+        if prompt.get('constraints'):
+            constraint_vectors = ENCODER_MODEL.encode(prompt['constraints'])
+            avg_constraint_vector = np.mean(constraint_vectors, axis=0)
+        else:
+            avg_constraint_vector = np.zeros(self.embedding_dim)
+        raw_context_features = np.array([
+            self.metadata.get('fitness', 0.0),
+            len(json.dumps(prompt)),
+            len(prompt.get('constraints', [])),
+            self.metadata.get('iterations_stuck', 0)
+        ])
+        normalized_context_features = self._normalize_features(raw_context_features)
+        empty_vectors = np.zeros((2, self.embedding_dim))
+        return np.concatenate([
+            role_vector, task_vector, avg_constraint_vector,
+            *empty_vectors, normalized_context_features
+        ])
+
+    def step(self, action_id: int) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        if action_id not in self.action_space:
+            raise ValueError(f"无效的动作ID: {action_id}")
+        old_prompt = self.current_prompt
+        old_fitness = self.metadata['fitness']
+        new_prompt = ActionFactory.apply_action(action_id, old_prompt)
+        new_fitness = self._calculate_fitness(new_prompt)
+        reward = new_fitness - old_fitness
+        if reward > 0:
+            self.current_prompt = new_prompt
+            self.metadata['fitness'] = new_fitness
+            self.metadata['iterations_stuck'] = 0
+        else:
+            self.metadata['iterations_stuck'] += 1
+        new_state_vector = self._create_state_vector()
+        done = False
+        info = {
+            'action_name': ActionFactory.ACTION_MAP[action_id],
+            'old_fitness': old_fitness,
+            'new_fitness': new_fitness,
+            'reward': round(reward, 4),
+            'accepted_change': reward > 0
+        }
+        return new_state_vector, reward, done, info
+
+# ==============================================================================
+# 模块 D: DQN Agent 的实现 (未改变，此处省略)
+# ==============================================================================
+BATCH_SIZE=16
+GAMMA=0.99
+EPS_START=0.9
+EPS_END=0.05
+EPS_DECAY=200
+LR=0.0001
+TARGET_UPDATE=10
+Transition=namedtuple('Transition',('state','action','next_state','reward'))
+class DQN(nn.Module):
+    def __init__(self,n_observations,n_actions):
+        super(DQN,self).__init__()
+        self.layer1=nn.Linear(n_observations,128)
+        self.layer2=nn.Linear(128,128)
+        self.layer3=nn.Linear(128,n_actions)
+    def forward(self,x):
+        x=torch.relu(self.layer1(x))
+        x=torch.relu(self.layer2(x))
+        return self.layer3(x)
+class ReplayMemory(object):
+    def __init__(self,capacity):self.memory=deque([],maxlen=capacity)
+    def push(self,*args):self.memory.append(Transition(*args))
+    def sample(self,batch_size):return random.sample(self.memory,batch_size)
+    def __len__(self):return len(self.memory)
+class DQNAgent:
+    def __init__(self,state_dim,action_dim):
+        self.state_dim=state_dim
+        self.action_dim=action_dim
+        self.policy_net=DQN(state_dim,action_dim)
+        self.target_net=DQN(state_dim,action_dim)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.target_net.eval()
+        self.optimizer=optim.AdamW(self.policy_net.parameters(),lr=LR,amsgrad=True)
+        self.memory=ReplayMemory(10000)
+        self.steps_done=0
+    def select_action(self,state):
+        sample=random.random()
+        eps_threshold=EPS_END+(EPS_START-EPS_END)*math.exp(-1.0*self.steps_done/EPS_DECAY)
+        self.steps_done+=1
+        if sample>eps_threshold:
+            with torch.no_grad():return self.policy_net(state).max(1)[1].view(1,1)
+        else:return torch.tensor([[random.randrange(self.action_dim)]],dtype=torch.long)
+    def optimize_model(self):
+        if len(self.memory)<BATCH_SIZE:return
+        transitions=self.memory.sample(BATCH_SIZE)
+        batch=Transition(*zip(*transitions))
+        non_final_mask=torch.tensor(tuple(map(lambda s:s is not None,batch.next_state)),dtype=torch.bool)
+        non_final_next_states=torch.cat([s for s in batch.next_state if s is not None])
+        state_batch=torch.cat(batch.state)
+        action_batch=torch.cat(batch.action)
+        reward_batch=torch.cat(batch.reward)
+        state_action_values=self.policy_net(state_batch).gather(1,action_batch)
+        next_state_values=torch.zeros(BATCH_SIZE)
+        with torch.no_grad():next_state_values[non_final_mask]=self.target_net(non_final_next_states).max(1)[0]
+        expected_state_action_values=(next_state_values*GAMMA)+reward_batch
+        criterion=nn.SmoothL1Loss()
+        loss=criterion(state_action_values,expected_state_action_values.unsqueeze(1))
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(),100)
+        self.optimizer.step()
+    def update_target_net(self):self.target_net.load_state_dict(self.policy_net.state_dict())
+
+# ==============================================================================
+# 最终整合：使用真实LLM进行RL优化循环
+# ==============================================================================
+if __name__ == "__main__":
+    initial_prompt_config = {
+        "role": "You are a helpful assistant.",
+        "task": "Explain what a neural network is in a simple way.",
+        "constraints": []
+    }
+    
+    env = PromptOptimizerEnv(initial_prompt=initial_prompt_config)
+    
+    state_vec = env._create_state_vector() # 获取初始状态向量
+    state_dim = len(state_vec)
+    action_dim = len(env.action_space)
+    agent = DQNAgent(state_dim, action_dim)
+
+    # 可选：加载之前训练好的模型
+    MODEL_PATH = "dqn_agent_real_llm.pth"
+    if os.path.exists(MODEL_PATH):
+        agent.policy_net.load_state_dict(torch.load(MODEL_PATH))
+        agent.target_net.load_state_dict(agent.policy_net.state_dict())
+        print(f"✅ 从 {MODEL_PATH} 加载了已训练的模型！")
+
+    print("\n🚀 强化学习循环开始 (使用真实LLM评估) 🚀")
+    print("=" * 60)
+    print(f"初始提示词: \n{json.dumps(env.current_prompt, indent=2)}")
+    print(f"初始适应度: {env.metadata['fitness']}/10")
+    print("=" * 60)
+
+    num_episodes = 30 # 由于API调用耗时且可能产生费用，建议减少迭代次数
+    for i_episode in range(num_episodes):
+        print(f"\n----------- Episode {i_episode+1}/{num_episodes} -----------")
+        state = torch.tensor(env._create_state_vector(), dtype=torch.float32).unsqueeze(0)
+
+        action_tensor = agent.select_action(state)
+        chosen_action = action_tensor.item()
+        action_name = ActionFactory.ACTION_MAP[chosen_action]
+        print(f"1. [动作 A] 智能体选择动作: ({chosen_action}) -> {action_name}")
+        
+        print("2. [执行 S->S'] 环境正在处理动作...")
+        new_state_vec, reward_val, done, info = env.step(chosen_action)
+        
+        reward = torch.tensor([reward_val], dtype=torch.float32)
+        next_state = torch.tensor(new_state_vec, dtype=torch.float32).unsqueeze(0)
+        
+        agent.memory.push(state, action_tensor, next_state, reward)
+        agent.optimize_model()
+
+        if i_episode % TARGET_UPDATE == 0:
+            agent.update_target_net()
+        
+        print(f"4. [结果] 奖励 R: {info['reward']:.4f}, {'👍 采纳新提示词' if info['accepted_change'] else '👎 保留原提示词'}")
+        
+    print("\n="*60)
+    print("🏁 训练结束 🏁")
+    print("="*60)
+    
+    torch.save(agent.policy_net.state_dict(), MODEL_PATH)
+    print(f"✅ 模型已保存到 {MODEL_PATH}")
+    
+    print(f"\n最终优化后的提示词: \n{json.dumps(env.current_prompt, indent=2, ensure_ascii=False)}")
+    print(f"最终适应度: {env.metadata['fitness']}/10")
