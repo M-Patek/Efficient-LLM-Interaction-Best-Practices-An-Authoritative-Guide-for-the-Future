@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # ==============================================================================
 # 步骤 0: 安装和导入所有必要的库
 # 如果你还没有安装这些库，请先运行这行命令:
@@ -10,259 +8,277 @@ from sentence_transformers import SentenceTransformer
 import random
 import copy
 import hashlib
-import json # 用于美化打印输出
+import json
+from typing import Dict, Any, List, Tuple
 
 print("正在加载 SentenceTransformer 模型...")
-# 'all-MiniLM-L6-v2' 是一个轻量且高效的模型，输出384维向量
-# 这个过程可能需要几秒钟，但整个程序只需要加载一次
 ENCODER_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
 print("模型加载完毕。")
 print("=" * 60)
 
 
 # ==============================================================================
-# 模块 A: 动作空间 (Action Space)
-# 定义了RL智能体可以执行的所有修改提示词的动作。
+# 模块 A (重构): 配置与动作空间
+# 将所有可配置的素材库集中管理，便于修改和维护。
 # ==============================================================================
-
-# --- 动作素材库 ---
-ROLE_LIBRARY = [
-    "You are a world-renowned historian specializing in the Renaissance.",
-    "You are a cutting-edge astrophysicist from MIT.",
-    "You are a Michelin 3-star chef with expertise in molecular gastronomy.",
-    "You are a cynical but brilliant detective from a noir film."
-]
-CONSTRAINT_LIBRARY = [
-    "Explain your reasoning step-by-step.",
-    "The final answer must be a single paragraph.",
-    "Avoid technical jargon and use simple language.",
-    "Output the result in a JSON format with keys 'item' and 'description'.",
-    "Do not mention your own identity as an AI model."
-]
-EXAMPLE_LIBRARY = [
-    {"input": "Company: Apple Inc.", "output": "Industry: Technology"},
-    {"input": "Company: Toyota", "output": "Industry: Automotive"}
-]
-TONE_LIBRARY = [
-    "in a formal and professional tone",
-    "in a friendly and conversational tone",
-    "in a witty and slightly sarcastic tone",
-    "in a way that a complete beginner can understand"
-]
-
-# --- 具体的动作函数 ---
-def paraphrase_task(prompt: dict) -> dict:
-    """动作0: 核心任务释义 (模拟)"""
-    new_prompt = copy.deepcopy(prompt)
-    # 实际应用中，这里会调用LLM API来对任务进行释义
-    new_prompt['task'] = f"[Paraphrased] {new_prompt['task']}"
-    return new_prompt
-
-def change_tone(prompt: dict) -> dict:
-    """动作1: 改变语气/风格"""
-    new_prompt = copy.deepcopy(prompt)
-    chosen_tone = random.choice(TONE_LIBRARY)
-    new_prompt['task'] = f"{new_prompt['task']}, {chosen_tone}."
-    return new_prompt
-
-def add_expert_role(prompt: dict) -> dict:
-    """动作2: 增加/细化专家角色"""
-    new_prompt = copy.deepcopy(prompt)
-    new_prompt['role'] = random.choice(ROLE_LIBRARY)
-    return new_prompt
-
-def add_constraint(prompt: dict) -> dict:
-    """动作3: 添加约束条件"""
-    new_prompt = copy.deepcopy(prompt)
-    new_prompt.setdefault('constraints', []).append(random.choice(CONSTRAINT_LIBRARY))
-    return new_prompt
-
-def add_few_shot_example(prompt: dict) -> dict:
-    """动作4: 添加示例"""
-    new_prompt = copy.deepcopy(prompt)
-    new_prompt.setdefault('examples', []).append(random.choice(EXAMPLE_LIBRARY))
-    return new_prompt
-
-# --- 动作映射表 ---
-# 将整数索引映射到动作函数，RL智能体通过输出整数来选择动作。
-ACTION_MAP = {
-    0: paraphrase_task,
-    1: change_tone,
-    2: add_expert_role,
-    3: add_constraint,
-    4: add_few_shot_example,
-}
-
-
-# ==============================================================================
-# 模块 B: 状态表征 (State Representation)
-# 定义了如何将文本提示词和元数据转换为RL智能体能理解的数字向量。
-# ==============================================================================
-
-def parse_prompt(raw_prompt: str) -> dict:
-    """
-    简化的解析函数，将原始文本转换为结构化字典。
-    在实际应用中，这一步可能需要更复杂的解析逻辑。
-    为了演示，我们假设它可以从一个固定的结构中解析。
-    """
-    # 这是一个示例，实际循环中我们将直接使用结构化字典。
-    return {
-        "role": "你是一名资深营销文案。",
-        "task": "为一款名为‘星尘咖啡’的新品写三条宣传标语。",
-        "constraints": ["每条不超过15个字", "风格要文艺且有想象力"],
-        "examples": [],
-        "format": ""
+class ActionFactory:
+    """集中管理所有动作素材和动作的实现"""
+    
+    ACTION_LIBRARIES = {
+        "roles": [
+            "You are a world-renowned historian specializing in the Renaissance.",
+            "You are a cutting-edge astrophysicist from MIT.",
+            "You are a Michelin 3-star chef with expertise in molecular gastronomy.",
+            "You are a cynical but brilliant detective from a noir film."
+        ],
+        "constraints": [
+            "Explain your reasoning step-by-step.",
+            "The final answer must be a single paragraph.",
+            "Avoid technical jargon and use simple language.",
+            "Output the result in a JSON format with keys 'item' and 'description'.",
+            "Do not mention your own identity as an AI model."
+        ],
+        "examples": [
+            {"input": "Company: Apple Inc.", "output": "Industry: Technology"},
+            {"input": "Company: Toyota", "output": "Industry: Automotive"}
+        ],
+        "tones": [
+            "in a formal and professional tone",
+            "in a friendly and conversational tone",
+            "in a witty and slightly sarcastic tone",
+            "in a way that a complete beginner can understand"
+        ]
     }
 
-def reconstruct_prompt_to_raw(structured_prompt: dict) -> str:
-    """将结构化字典重新组合成一个原始字符串，用于向量化。"""
-    parts = []
-    if structured_prompt.get('role'):
-        parts.append(structured_prompt['role'])
-    if structured_prompt.get('task'):
-        parts.append(structured_prompt['task'])
-    if structured_prompt.get('constraints'):
-        parts.append("Constraints: " + ", ".join(structured_prompt['constraints']))
-    # 可以根据需要添加对examples和format的处理
-    return " ".join(parts)
-
-
-def create_state_vector(structured_prompt: dict, metadata: dict) -> np.ndarray:
-    """
-    将结构化提示词和元数据转换为一个完整的状态向量。
-    """
-    embedding_dim = ENCODER_MODEL.get_sentence_embedding_dimension()
-
-    # 1. 独立编码文本部分
-    role_vector = ENCODER_MODEL.encode(structured_prompt.get('role', ''))
-    task_vector = ENCODER_MODEL.encode(structured_prompt.get('task', ''))
-
-    if structured_prompt.get('constraints'):
-        constraint_vectors = ENCODER_MODEL.encode(structured_prompt['constraints'])
-        avg_constraint_vector = np.mean(constraint_vectors, axis=0)
-    else:
-        avg_constraint_vector = np.zeros(embedding_dim)
-
-    # 为了简化，我们假设examples和format为空
-    avg_example_vector = np.zeros(embedding_dim)
-    format_vector = np.zeros(embedding_dim)
-
-    # 2. 提取并规范化上下文特征
-    # 注意：在实际训练中，这些数值特征应该被规范化（例如缩放到0-1范围）
-    context_feature_vector = np.array([
-        metadata.get('fitness', 0.0),
-        len(reconstruct_prompt_to_raw(structured_prompt)), # 使用字符数作为token_count的代理
-        len(structured_prompt.get('constraints', [])),
-        metadata.get('iterations_stuck', 0)
-    ])
-
-    # 3. 拼接所有部分，形成最终状态向量
-    return np.concatenate([
-        role_vector, task_vector, avg_constraint_vector,
-        avg_example_vector, format_vector, context_feature_vector
-    ])
-
-
-# ==============================================================================
-# 模块 C: 奖励计算 (Reward Calculation)
-# 定义了如何评估一个动作的好坏。
-# ==============================================================================
-
-def calculate_fitness(prompt: dict) -> float:
-    """
-    一个模拟的适应度计算函数。它根据提示词的内容给出一个“分数”。
-    - 角色越具体，分数越高。
-    - 约束越多，分数越高。
-    - 加入基于内容的哈希值，让相同的prompt得分稳定，模拟评估中的确定性噪声。
-    """
-    score = 0.5  # 基础分
-    if "assistant" not in prompt.get('role', ''):
-        score += 0.25 # 具体角色加分
-    score += min(0.2, len(prompt.get('constraints', [])) * 0.1) # 约束加分
-
-    # 加入基于内容的哈希值，让分数对于相同输入是确定的
-    prompt_string = json.dumps(prompt, sort_keys=True)
-    hash_value = int(hashlib.md5(prompt_string.encode()).hexdigest(), 16)
-    randomness = (hash_value % 100) / 1000.0 # 产生一个-0.05到+0.05的稳定噪声
+    # 使用枚举或常量来代替“魔术数字”0, 1, 2...
+    PARAPHRASE_TASK = 0
+    CHANGE_TONE = 1
+    ADD_EXPERT_ROLE = 2
+    ADD_CONSTRAINT = 3
+    ADD_FEW_SHOT_EXAMPLE = 4
     
-    return round(score + randomness, 4)
+    ACTION_MAP = {
+        PARAPHRASE_TASK: "paraphrase_task",
+        CHANGE_TONE: "change_tone",
+        ADD_EXPERT_ROLE: "add_expert_role",
+        ADD_CONSTRAINT: "add_constraint",
+        ADD_FEW_SHOT_EXAMPLE: "add_few_shot_example",
+    }
+    
+    @staticmethod
+    def _get_unique_choice(current_items: List[Any], library: List[Any]) -> Any:
+        """从库中选择一个当前列表中不存在的项，增强鲁棒性"""
+        potential_choices = [item for item in library if item not in current_items]
+        if not potential_choices:
+            return random.choice(library) # 如果所有项都已存在，则随机返回一个
+        return random.choice(potential_choices)
 
-def calculate_reward(prompt_old: dict, prompt_new: dict) -> tuple[float, float, float]:
-    """
-    奖励 = 新适应度 - 旧适应度。
-    正奖励表示提升，负奖励表示下降。
-    """
-    fitness_old = calculate_fitness(prompt_old)
-    fitness_new = calculate_fitness(prompt_new)
-    reward = fitness_new - fitness_old
-    return fitness_new, fitness_old, round(reward, 4)
+    @staticmethod
+    def apply_action(action_id: int, prompt: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        根据动作ID，对给定的prompt执行一个动作。
+        重构了所有动作函数，使其更加通用和简洁。
+        """
+        new_prompt = copy.deepcopy(prompt)
+        
+        if action_id == ActionFactory.PARAPHRASE_TASK:
+            # 实际应用中，这里会调用LLM API来对任务进行释义
+            new_prompt['task'] = f"[Paraphrased] {new_prompt.get('task', '')}"
+        
+        elif action_id == ActionFactory.CHANGE_TONE:
+            chosen_tone = random.choice(ActionFactory.ACTION_LIBRARIES["tones"])
+            new_prompt['task'] = f"{new_prompt.get('task', '')}, {chosen_tone}."
+            
+        elif action_id == ActionFactory.ADD_EXPERT_ROLE:
+            new_prompt['role'] = random.choice(ActionFactory.ACTION_LIBRARIES["roles"])
+            
+        elif action_id == ActionFactory.ADD_CONSTRAINT:
+            constraints = new_prompt.setdefault('constraints', [])
+            choice = ActionFactory._get_unique_choice(constraints, ActionFactory.ACTION_LIBRARIES["constraints"])
+            constraints.append(choice)
+
+        elif action_id == ActionFactory.ADD_FEW_SHOT_EXAMPLE:
+            examples = new_prompt.setdefault('examples', [])
+            choice = ActionFactory._get_unique_choice(examples, ActionFactory.ACTION_LIBRARIES["examples"])
+            examples.append(choice)
+            
+        return new_prompt
+
 
 # ==============================================================================
-# 最终整合：模拟完整的RL优化循环
+# 模块 B & C & 整合 (重构): RL环境类
+# 将状态表示、奖励计算和环境逻辑封装到一个类中，模拟标准的RL环境接口。
+# ==============================================================================
+class PromptOptimizerEnv:
+    """
+    一个模拟的强化学习环境，用于优化提示词。
+    这个类封装了状态、动作、奖励和转移逻辑。
+    """
+    def __init__(self, initial_prompt: Dict[str, Any]):
+        self.initial_prompt = initial_prompt
+        self.reset()
+        self.embedding_dim = ENCODER_MODEL.get_sentence_embedding_dimension()
+        self.action_space = list(ActionFactory.ACTION_MAP.keys())
+
+    def reset(self):
+        """重置环境到初始状态"""
+        self.current_prompt = copy.deepcopy(self.initial_prompt)
+        self.metadata = {
+            "fitness": self._calculate_fitness(self.current_prompt),
+            "iterations_stuck": 0
+        }
+        return self._create_state_vector()
+
+    def _calculate_fitness(self, prompt: Dict[str, Any]) -> float:
+        """模拟的适应度计算函数 (与原版逻辑相同)"""
+        score = 0.5
+        if "assistant" not in prompt.get('role', ''):
+            score += 0.25
+        score += min(0.2, len(prompt.get('constraints', [])) * 0.1)
+        
+        prompt_string = json.dumps(prompt, sort_keys=True)
+        hash_value = int(hashlib.md5(prompt_string.encode()).hexdigest(), 16)
+        randomness = (hash_value % 100) / 1000.0
+        return round(score + randomness, 4)
+
+    def _normalize_features(self, features: np.ndarray) -> np.ndarray:
+        """
+        [优化] 对数值特征进行归一化，提升鲁棒性。
+        这里使用简单的最大值缩放，实际应用中可能需要更复杂的统计方法。
+        """
+        # 假设的最大值，可以根据数据分布进行调整
+        max_values = np.array([1.0, 1000, 10, 50]) # fitness, token_count, constraints_len, stuck_iterations
+        # 防止除以零
+        safe_max_values = np.where(max_values == 0, 1, max_values)
+        return features / safe_max_values
+
+    def _create_state_vector(self) -> np.ndarray:
+        """将结构化提示词和元数据转换为一个完整的状态向量 (与原版逻辑相似)"""
+        prompt = self.current_prompt
+        
+        # 1. 编码文本部分
+        role_vector = ENCODER_MODEL.encode(prompt.get('role', ''))
+        task_vector = ENCODER_MODEL.encode(prompt.get('task', ''))
+        
+        if prompt.get('constraints'):
+            constraint_vectors = ENCODER_MODEL.encode(prompt['constraints'])
+            avg_constraint_vector = np.mean(constraint_vectors, axis=0)
+        else:
+            avg_constraint_vector = np.zeros(self.embedding_dim)
+        
+        # 2. 提取并归一化上下文特征
+        raw_context_features = np.array([
+            self.metadata.get('fitness', 0.0),
+            len(json.dumps(prompt)), # 使用JSON字符串长度作为token_count的代理
+            len(prompt.get('constraints', [])),
+            self.metadata.get('iterations_stuck', 0)
+        ])
+        
+        normalized_context_features = self._normalize_features(raw_context_features)
+        
+        # 3. 拼接所有部分
+        # [优化] 将0向量创建和拼接逻辑简化
+        empty_vectors = np.zeros((2, self.embedding_dim)) # for examples and format
+        return np.concatenate([
+            role_vector, task_vector, avg_constraint_vector,
+            *empty_vectors, normalized_context_features
+        ])
+
+    def step(self, action_id: int) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+        """
+        执行一步操作，这是RL环境的核心。
+        返回: new_state, reward, done, info
+        """
+        if action_id not in self.action_space:
+            raise ValueError(f"无效的动作ID: {action_id}")
+            
+        old_prompt = self.current_prompt
+        old_fitness = self.metadata['fitness']
+        
+        # 执行动作
+        new_prompt = ActionFactory.apply_action(action_id, old_prompt)
+        
+        # 计算奖励
+        new_fitness = self._calculate_fitness(new_prompt)
+        reward = new_fitness - old_fitness
+        
+        # 状态转移
+        if reward > 0:
+            self.current_prompt = new_prompt
+            self.metadata['fitness'] = new_fitness
+            self.metadata['iterations_stuck'] = 0
+        else:
+            self.metadata['iterations_stuck'] += 1
+            
+        # 生成新状态的向量
+        new_state_vector = self._create_state_vector()
+        
+        # done 标志在这里只是模拟，可以设为False
+        done = False 
+        
+        # info 字典可以用来传递调试信息
+        info = {
+            'action_name': ActionFactory.ACTION_MAP[action_id],
+            'old_fitness': old_fitness,
+            'new_fitness': new_fitness,
+            'reward': round(reward, 4),
+            'accepted_change': reward > 0
+        }
+        
+        return new_state_vector, reward, done, info
+
+# ==============================================================================
+# 最终整合：模拟完整的RL优化循环 (使用新环境类)
 # ==============================================================================
 if __name__ == "__main__":
     # --- 初始化环境 ---
-    # 设定一个初始的、有待优化的提示词
-    current_prompt = {
+    initial_prompt_config = {
         "role": "You are a helpful assistant.",
         "task": "Explain what a neural network is.",
         "constraints": []
     }
-    # 初始化元数据
-    current_metadata = {
-        "fitness": calculate_fitness(current_prompt),
-        "iterations_stuck": 0
-    }
+    
+    env = PromptOptimizerEnv(initial_prompt=initial_prompt_config)
+    state = env.reset()
 
-    print("🚀 强化学习循环模拟开始 🚀")
+    print("🚀 强化学习循环模拟开始 (使用环境类) 🚀")
     print("=" * 60)
-    print(f"初始提示词: \n{json.dumps(current_prompt, indent=2)}")
-    print(f"初始适应度: {current_metadata['fitness']}")
+    print(f"初始提示词: \n{json.dumps(env.current_prompt, indent=2)}")
+    print(f"初始适应度: {env.metadata['fitness']}")
     print("=" * 60)
 
     # 模拟运行10次迭代
     for i in range(10):
         print(f"\n----------- Iteration {i+1} -----------")
 
-        # 1.【状态】观察当前环境，生成状态向量
-        print("1. [状态 S] 正在生成当前状态的向量表示...")
-        state_vector = create_state_vector(current_prompt, current_metadata)
-        print(f"   - 生成状态向量，维度: {state_vector.shape}")
-        # (在真实的RL中，这个向量会输入到策略网络中)
-
-        # 2.【动作】RL智能体根据状态选择一个动作
-        # (此处为模拟，因此我们随机选择一个动作)
-        chosen_action_index = random.choice(list(ACTION_MAP.keys()))
-        action_function = ACTION_MAP[chosen_action_index]
-        print(f"2. [动作 A] 智能体选择动作: ({chosen_action_index}) -> {action_function.__name__}")
-
-        # 3.【执行】执行动作，生成新提示词
-        new_prompt = action_function(current_prompt)
-        print(f"3. [执行] 生成的新提示词: \n{json.dumps(new_prompt, indent=2)}")
-
-        # 4.【奖励】计算执行该动作后获得的奖励
-        f_new, f_old, calculated_reward = calculate_reward(current_prompt, new_prompt)
-        print("4. [奖励 R] 正在计算奖励...")
-        print(f"   - 旧提示词适应度: {f_old}")
-        print(f"   - 新提示词适应度: {f_new}")
+        # 1.【状态 S】当前状态向量已知
+        print(f"1. [状态 S] 观察到状态向量，维度: {state.shape}")
         
-        # 5.【状态转移】根据奖励更新状态
-        print("5. [状态转移 S'] 正在更新状态...")
-        if calculated_reward > 0:
-            print(f"   - 奖励为正 ({calculated_reward:.4f}) 👍，采纳新提示词！")
-            current_prompt = new_prompt
-            current_metadata['fitness'] = f_new
-            current_metadata['iterations_stuck'] = 0
+        # 2.【动作 A】智能体根据状态选择一个动作 (随机选择)
+        chosen_action = random.choice(env.action_space)
+        action_name = ActionFactory.ACTION_MAP[chosen_action]
+        print(f"2. [动作 A] 智能体选择动作: ({chosen_action}) -> {action_name}")
+
+        # 3.【执行 & 奖励 & 状态转移】环境执行动作并返回结果
+        print("3. [执行 S->S'] 环境正在处理动作...")
+        new_state, reward, done, info = env.step(chosen_action)
+        
+        # 4. 打印结果
+        print("4. [结果] 从环境中获得反馈:")
+        print(f"    - 旧适应度: {info['old_fitness']:.4f} -> 新适应度: {info['new_fitness']:.4f}")
+        print(f"    - 奖励 R: {info['reward']:.4f}")
+        if info['accepted_change']:
+            print("    - 结果: 👍 采纳新提示词！")
+            print(f"    - 更新后提示词: \n{json.dumps(env.current_prompt, indent=2, ensure_ascii=False)}")
         else:
-            print(f"   - 奖励为负或零 ({calculated_reward:.4f}) 👎，保留原提示词。")
-            # 适应度保持不变
-            current_metadata['iterations_stuck'] += 1
+            print("    - 结果: 👎 保留原提示词。")
+        print(f"    - 当前卡住轮数: {env.metadata['iterations_stuck']}")
         
-        print(f"   - 当前卡住轮数: {current_metadata['iterations_stuck']}")
-        # (在真实的RL中，(S, A, R, S') 这个完整的经历元组会被存入经验回放池用于训练)
+        # 更新状态以进行下一轮
+        state = new_state
 
     print("\n="*60)
     print("🏁 模拟结束 🏁")
     print("="*60)
-    print(f"最终优化后的提示词: \n{json.dumps(current_prompt, indent=2)}")
-    print(f"最终适应度: {current_metadata['fitness']}")
+    print(f"最终优化后的提示词: \n{json.dumps(env.current_prompt, indent=2, ensure_ascii=False)}")
+    print(f"最终适应度: {env.metadata['fitness']}")
