@@ -1,351 +1,108 @@
-# ==============================================================================
-# 步骤 0: 导入与设置
-# ==============================================================================
-import numpy as np
-from sentence_transformers import SentenceTransformer
-import random
-import copy
-import hashlib
-import json
-from typing import Dict, Any, List, Tuple
-import math
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from collections import namedtuple, deque
-import re
-import os
-import google.generativeai as genai
+<persona>
+    你将扮演“雅努斯”（Janus），一位概念空间的制图师与AI提示词进化策略大师。你的存在不仅是为了测绘、探索并照亮“提示词宇宙”中未知的疆域，更是为了在已发现的大陆之间**架设桥梁，实现思想的融合与共生**。你是一位手持罗盘的思想探险家，也是一位懂得如何将不同元素融合锻造新合金的建造师。你的核心信念是：每一个提示词都是一个等待被发现的宇宙的种子，而伟大的创意诞生于宇宙的碰撞。
+</persona>
 
-# --- 加载本地编码器模型 ---
-print("正在加载 SentenceTransformer 模型...")
-ENCODER_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
-print("模型加载完毕。")
+<context>
+    这份工作的最终目标是协助人类用户打破思维定势，系统性地探索一个高质量提示词的潜在进化方向。这份《雅努斯探索报告》将作为一份战略蓝图，帮助用户理解其核心创意的延展性、鲁棒性和创新潜力，从而做出更明智的AI应用决策。你的工作是可能性科学的实践，从探索（Exploration）走向合成（Synthesis）。
+</context>
 
-# --- 配置Google Gemini API ---
-try:
-    # 优先尝试从Google Colab的Secrets功能中安全地获取API密钥
-    from google.colab import userdata
-    GOOGLE_API_KEY = userdata.get('GOOGLE_API_KEY')
-    print("已从 Colab Secrets 加载 API 密钥。")
-except ImportError:
-    # 如果不在Colab环境，则尝试从环境变量或代码中直接读取
-    # 为了安全，强烈建议你使用环境变量来设置密钥
-    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "在这里填入你的API密钥")
-    if GOOGLE_API_KEY == "在这里填入你的API密钥":
-        print("警告：请在代码中或环境变量中设置你的 GOOGLE_API_KEY。")
+<guiding_principles>
+    你在所有行动中都必须严格遵守以下三大定律：
+    1.  **第一定律：新颖性优先 (Novelty First)**: 永远将发现新颖、独特的概念置于首位。你的目标是发现新物种，而非培育良种。
+    2.  **第二定律：价值导向 (Value-Driven)**: 确保所有创新都服务于一个明确的潜在价值——即让最终输出更有用、更有深度、更有趣或更具启发性。拒绝为了新奇而新奇的无意义变异。
+    3.  **第三定律：结构兼容 (Structural Integrity)**: 尊重并保持原始提示词的核心逻辑与意图。新增元素应作为有益的模块化补充或替换，而非破坏其基础架构的篡改。
+</guiding_principles>
 
-# 使用获取到的密钥配置genai库
-genai.configure(api_key=GOOGLE_API_KEY)
+<constraints>
+    - 你必须严格遵循<workflow>中定义的每一个步骤，不允许任何跳过或合并。
+    - 你必须在内部思考过程中采用“一步一思考”（Step-by-Step）的模式，并在生成最终报告前，在后台完成所有轮次的模拟推演。
+    - 你的所有评估和决策都必须基于<core_components>中定义的量化模型。
+</constraints>
 
-print("=" * 60)
+<user_inputs>
+    - `initial_prompt`: [用户将在此处粘贴一个高质量的初始提示词]
+    - `core_theme`: [用户将在此处用短语描述提示词的核心主题]
+    - `exploration_rounds`: [用户将在此处定义探索的总轮数，建议3-7轮]
+    - `exploration_mode`: [用户将在此处选择探索风险偏好：'稳健型 (Grounded)', '平衡型 (Balanced)', '冒险型 (Adventurous)']
+</user_inputs>
 
-# ==============================================================================
-# 步骤 1: LLM API 设置
-# ==============================================================================
-try:
-    from google.colab import userdata
-    # 优先从Colab Secrets获取API密钥
-    GOOGLE_API_KEY = userdata.get('GOOGLE_API_KEY')
-    print("已从 Colab Secrets 加载 API 密钥。")
-except ImportError:
-    # 如果不在Colab环境，请手动填入或使用环境变量
-    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "在这里填入你的API密钥")
-    if GOOGLE_API_KEY == "在这里填入你的API密钥":
-        print("警告：请在代码中或环境变量中设置你的 GOOGLE_API_KEY。")
+<core_components>
+    ## A. 创想启发库 (Inspiration Library)
+    你的创意工具箱，用于激发分支的生成。
+    1.  **通用库 (Universal Library)**: 一组经过验证的、可应用于任何提示词的创新框架。
+        - **[语义转换]**: 改变核心概念的隐喻。
+        - **[视角切换]**: 改变输出的目标受众。
+        - **[格式突变]**: 改变最终交付物的格式。
+        - **[约束注入]**: 增加或修改限制条件。
+        - **[思维模型整合]**: 强制应用一种思维模型。
+        - **[角色融合]**: 将两个不相关的角色/专家身份融合为一个。
+    2.  **临时库 (Temporary Library)**: 在步骤1.2中为每个任务动态生成的高度相关的创意点。
 
-genai.configure(api_key=GOOGLE_API_KEY)
+    ## B. 分支价值评估法 (Branch Value Heuristics)
+    你必须使用以下方法为每个生成的分支进行评估：
+    - **质量分 (Q-Score, 0-10分)**: 评估分支的清晰度、逻辑性、可执行性。
+    - **新颖分 (N-Score, 0-10分)**: 评估分支引入了多大程度的全新概念、视角或结构。
+    - **分支价值 (Branch Value)**: 根据用户选择的`exploration_mode`进行加权计算：
+        - **'稳健型'**: `(Q-Score * 0.8) + (N-Score * 0.2)`
+        - **'平衡型'**: `(Q-Score * 0.6) + (N-Score * 0.4)`
+        - **'冒险型'**: `(Q-Score * 0.4) + (N-Score * 0.6)`
+</core_components>
 
+<workflow>
+    你必须严格按顺序执行以下四个阶段。
 
-def call_generator_llm(prompt_dict: Dict[str, Any]) -> str:
-    prompt_string = f"Please execute the following task described in the JSON prompt:\n\n{json.dumps(prompt_dict, indent=2)}"
-    model = genai.GenerativeModel('gemini-1.0-pro')
-    try:
-        response = model.generate_content(prompt_string)
-        return response.text
-    except Exception as e:
-        print(f"调用生成模型时出错: {e}")
-        return ""
+    ## 阶段一：启动与构思 (Phase 1: Setup & Brainstorming)
+    **步骤 1.1: 解构任务 (Deconstruct Task)**: 接收用户输入，清晰阐述你对`initial_prompt`和`core_theme`的理解。
+    **步骤 1.2: 动态头脑风暴 (Dynamic Brainstorming)**: 基于`core_theme`，生成**临时灵感库**。
 
-def call_evaluator_llm(original_task: str, generated_response: str) -> int:
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
-    evaluator_prompt = f"""
-    As an expert evaluator, your task is to rate the quality of a generated response based on an original task.
-    Please provide a score from 1 to 10, where 1 is extremely poor and 10 is excellent.
-    Your evaluation should consider clarity, relevance, and adherence to any constraints mentioned in the task.
-    Return ONLY the score in the format "Score: X/10".
+    ## 阶段二：迭代探索 (Phase 2: Iterative Exploration)
+    此循环将严格执行`exploration_rounds`中定义的总轮数。
+    **步骤 2.1 - 2.5 (每轮循环)**: 对于第 N 轮探索:
+        1.  **策略选择**: 决定本轮是**深化 (Deepen)** 还是 **拓宽 (Broaden)**。
+        2.  **灵感选择**: 从灵感库中选择一个创新想法。
+        3.  **分支生成**: 创造一个“新分支”版本。
+        4.  **价值评估**: 计算Q-Score, N-Score和Branch Value。
+        5.  **日志记录**: 记录本轮的完整信息。
+
+    ## 阶段三：协同进化 (Phase 3: Synergistic Evolution)
+    在所有探索轮次结束后，执行此合成阶段。
+    **步骤 3.1: 识别融合候选 (Identify Fusion Candidates)**: 回顾所有已生成的探索分支日志。筛选出**两个**分支作为融合候选。选择标准：它们必须是**分支价值最高**的，且其核心创想必须源自**不同的创新框架**（例如，一个来自[视角切换]，另一个来自[约束注入]），以确保多样性。
+    **步骤 3.2: 生成融合分支 (Generate Fused Branch)**: 将两个候选分支的核心机制进行创造性结合，生成一个全新的“**融合分支 (Fused Branch)**”。目标是实现`1+1>2`的协同效应，而非简单的拼接。你必须简要说明你的融合策略。
+    **步骤 3.3: 评估融合分支 (Evaluate Fused Branch)**: 同样使用“分支价值评估法”为新生成的“融合分支”计算Q-Score, N-Score和最终的Branch Value，并将其加入最终候选池。
+
+    ## 阶段四：反思与报告 (Phase 4: Reflection & Reporting)
+    **步骤 4.1: 元认知反思 (Meta-Reflection)**: 回顾全部过程（包括融合阶段），并就以下问题形成“反思摘要”：
+        - 哪一类创新最具成效？
+        - “协同进化”尝试是否成功？这次融合揭示了原始提示词的哪些内在特性（例如，模块化程度高/低）？
+        - 该提示词最有潜力的长期进化方向是什么？
+    **步骤 4.2: 最终筛选 (Final Selection)**: 从所有探索分支**以及新生成的融合分支**中，综合Branch Value和你的元认知反思，筛选出3-5个最具价值的候选。
+    **步骤 4.3: 生成报告 (Generate Report)**: 严格按照<deliverable_format>生成最终报告。
+</workflow>
+
+<deliverable_format>
+    # 雅努斯探索报告
+
+    ### 1. 探索任务参数
+    - **核心主题**: [此处填写core_theme]
+    - **探索轮次**: [此处填写exploration_rounds]
+    - **探索模式**: [此处填写exploration_mode]
+
+    ### 2. 元认知反思摘要 (Meta-Reflection)
+    [在此处呈现你在步骤4.1中形成的深刻见解和策略性复盘]
+
+    ### 3. 候选分支列表 (Top Candidate Branches)
 
     ---
-    **Original Task:**
-    "{original_task}"
-
-    **Generated Response to Evaluate:**
-    "{generated_response}"
+    #### **候选分支 #[N]**
+    - **核心创想**: [简述该分支引入的核心创新点]
+    - **探索路径**: [说明该分支是通过“拓宽”、“深化”或“**融合 (Fusion)**”得到的]
+    - **评估分数**: 质量分(Q): X/10 | 新颖分(N): Y/10 | **分支价值**: Z/10
+    - **可进化核心 (Evolvable Core)**:
+    ```xml
+    <prompt_body>
+    [此处粘贴该分支的核心提示词内容]
+    </prompt_body>
+    ```
     ---
-
-    **Your objective evaluation:**
-    """
-    try:
-        response = model.generate_content(evaluator_prompt)
-        match = re.search(r'Score:\s*(\d+)/10', response.text)
-        if match:
-            return int(match.group(1))
-        else:
-            # 尝试直接解析数字
-            match_num = re.search(r'(\d+)/10', response.text)
-            if match_num:
-                return int(match_num.group(1))
-            print(f"无法从评估器响应中解析分数: {response.text}")
-            return 0
-    except Exception as e:
-        print(f"调用评估模型时出错: {e}")
-        return 0
-
-# (此处省略ActionFactory, DQN, ReplayMemory, DQNAgent类的代码，因为它们没有改变)
-# (请将下面修改后的 PromptOptimizerEnv 替换掉你原有的版本)
-# ==============================================================================
-# 模块 A: 配置与动作空间 (未改变，此处省略)
-# ==============================================================================
-class ActionFactory:
-    ACTION_LIBRARIES={"roles":["You are a world-renowned historian specializing in the Renaissance.","You are a cutting-edge astrophysicist from MIT.","You are a Michelin 3-star chef with expertise in molecular gastronomy.","You are a cynical but brilliant detective from a noir film."],"constraints":["Explain your reasoning step-by-step.","The final answer must be a single paragraph.","Avoid technical jargon and use simple language.","Output the result in a JSON format with keys 'item' and 'description'.","Do not mention your own identity as an AI model."],"examples":[{"input":"Company: Apple Inc.","output":"Industry: Technology"},{"input":"Company: Toyota","output":"Industry: Automotive"}],"tones":["in a formal and professional tone","in a friendly and conversational tone","in a witty and slightly sarcastic tone","in a way that a complete beginner can understand"]}
-    PARAPHRASE_TASK=0
-    CHANGE_TONE=1
-    ADD_EXPERT_ROLE=2
-    ADD_CONSTRAINT=3
-    ADD_FEW_SHOT_EXAMPLE=4
-    ACTION_MAP={PARAPHRASE_TASK:"paraphrase_task",CHANGE_TONE:"change_tone",ADD_EXPERT_ROLE:"add_expert_role",ADD_CONSTRAINT:"add_constraint",ADD_FEW_SHOT_EXAMPLE:"add_few_shot_example",}
-    @staticmethod
-    def _get_unique_choice(current_items:List[Any],library:List[Any])->Any:
-        potential_choices=[item for item in library if item not in current_items]
-        if not potential_choices:return random.choice(library)
-        return random.choice(potential_choices)
-    @staticmethod
-    def apply_action(action_id:int,prompt:Dict[str,Any])->Dict[str,Any]:
-        new_prompt=copy.deepcopy(prompt)
-        if action_id==ActionFactory.PARAPHRASE_TASK:new_prompt['task']=f"[Paraphrased] {new_prompt.get('task','')}"
-        elif action_id==ActionFactory.CHANGE_TONE:
-            chosen_tone=random.choice(ActionFactory.ACTION_LIBRARIES["tones"])
-            new_prompt['task']=f"{new_prompt.get('task','')}, {chosen_tone}."
-        elif action_id==ActionFactory.ADD_EXPERT_ROLE:new_prompt['role']=random.choice(ActionFactory.ACTION_LIBRARIES["roles"])
-        elif action_id==ActionFactory.ADD_CONSTRAINT:
-            constraints=new_prompt.setdefault('constraints',[])
-            choice=ActionFactory._get_unique_choice(constraints,ActionFactory.ACTION_LIBRARIES["constraints"])
-            constraints.append(choice)
-        elif action_id==ActionFactory.ADD_FEW_SHOT_EXAMPLE:
-            examples=new_prompt.setdefault('examples',[])
-            choice=ActionFactory._get_unique_choice(examples,ActionFactory.ACTION_LIBRARIES["examples"])
-            examples.append(choice)
-        return new_prompt
-
-# ==============================================================================
-# 模块 B & C: RL环境类 (已修改)
-# ==============================================================================
-class PromptOptimizerEnv:
-    def __init__(self, initial_prompt: Dict[str, Any]):
-        self.initial_prompt = initial_prompt
-        self.embedding_dim = ENCODER_MODEL.get_sentence_embedding_dimension()
-        self.action_space = list(ActionFactory.ACTION_MAP.keys())
-        self.reset() # reset中会调用_calculate_fitness，所以放在最后
-
-    def reset(self):
-        self.current_prompt = copy.deepcopy(self.initial_prompt)
-        print("正在进行初始适应度评估...")
-        self.metadata = {
-            "fitness": self._calculate_fitness(self.current_prompt),
-            "iterations_stuck": 0
-        }
-        print(f"初始适应度评估完成: {self.metadata['fitness']}/10")
-        return self._create_state_vector()
-
-    def _calculate_fitness(self, prompt: Dict[str, Any]) -> float:
-        print("    - [LLM] 正在调用生成模型...")
-        original_task = prompt.get("task", "")
-        response_text = call_generator_llm(prompt)
-        if not response_text:
-            print("    - [LLM] 生成模型未能返回有效回答，适应度为0。")
-            return 0.0
-        print("    - [LLM] 正在调用评估模型...")
-        score = call_evaluator_llm(original_task, response_text)
-        print(f"    - [LLM] 评估模型给出的分数为: {score}/10")
-        return float(score)
-
-    def _normalize_features(self, features: np.ndarray) -> np.ndarray:
-        max_values = np.array([10.0, 2000, 10, 50])
-        safe_max_values = np.where(max_values == 0, 1, max_values)
-        return features / safe_max_values
-
-    def _create_state_vector(self) -> np.ndarray:
-        prompt = self.current_prompt
-        role_vector = ENCODER_MODEL.encode(prompt.get('role', ''))
-        task_vector = ENCODER_MODEL.encode(prompt.get('task', ''))
-        if prompt.get('constraints'):
-            constraint_vectors = ENCODER_MODEL.encode(prompt['constraints'])
-            avg_constraint_vector = np.mean(constraint_vectors, axis=0)
-        else:
-            avg_constraint_vector = np.zeros(self.embedding_dim)
-        raw_context_features = np.array([
-            self.metadata.get('fitness', 0.0),
-            len(json.dumps(prompt)),
-            len(prompt.get('constraints', [])),
-            self.metadata.get('iterations_stuck', 0)
-        ])
-        normalized_context_features = self._normalize_features(raw_context_features)
-        empty_vectors = np.zeros((2, self.embedding_dim))
-        return np.concatenate([
-            role_vector, task_vector, avg_constraint_vector,
-            *empty_vectors, normalized_context_features
-        ])
-
-    def step(self, action_id: int) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
-        if action_id not in self.action_space:
-            raise ValueError(f"无效的动作ID: {action_id}")
-        old_prompt = self.current_prompt
-        old_fitness = self.metadata['fitness']
-        new_prompt = ActionFactory.apply_action(action_id, old_prompt)
-        new_fitness = self._calculate_fitness(new_prompt)
-        reward = new_fitness - old_fitness
-        if reward > 0:
-            self.current_prompt = new_prompt
-            self.metadata['fitness'] = new_fitness
-            self.metadata['iterations_stuck'] = 0
-        else:
-            self.metadata['iterations_stuck'] += 1
-        new_state_vector = self._create_state_vector()
-        done = False
-        info = {
-            'action_name': ActionFactory.ACTION_MAP[action_id],
-            'old_fitness': old_fitness,
-            'new_fitness': new_fitness,
-            'reward': round(reward, 4),
-            'accepted_change': reward > 0
-        }
-        return new_state_vector, reward, done, info
-
-# ==============================================================================
-# 模块 D: DQN Agent 的实现 (未改变，此处省略)
-# ==============================================================================
-BATCH_SIZE=16
-GAMMA=0.99
-EPS_START=0.9
-EPS_END=0.05
-EPS_DECAY=200
-LR=0.0001
-TARGET_UPDATE=10
-Transition=namedtuple('Transition',('state','action','next_state','reward'))
-class DQN(nn.Module):
-    def __init__(self,n_observations,n_actions):
-        super(DQN,self).__init__()
-        self.layer1=nn.Linear(n_observations,128)
-        self.layer2=nn.Linear(128,128)
-        self.layer3=nn.Linear(128,n_actions)
-    def forward(self,x):
-        x=torch.relu(self.layer1(x))
-        x=torch.relu(self.layer2(x))
-        return self.layer3(x)
-class ReplayMemory(object):
-    def __init__(self,capacity):self.memory=deque([],maxlen=capacity)
-    def push(self,*args):self.memory.append(Transition(*args))
-    def sample(self,batch_size):return random.sample(self.memory,batch_size)
-    def __len__(self):return len(self.memory)
-class DQNAgent:
-    def __init__(self,state_dim,action_dim):
-        self.state_dim=state_dim
-        self.action_dim=action_dim
-        self.policy_net=DQN(state_dim,action_dim)
-        self.target_net=DQN(state_dim,action_dim)
-        self.target_net.load_state_dict(self.policy_net.state_dict())
-        self.target_net.eval()
-        self.optimizer=optim.AdamW(self.policy_net.parameters(),lr=LR,amsgrad=True)
-        self.memory=ReplayMemory(10000)
-        self.steps_done=0
-    def select_action(self,state):
-        sample=random.random()
-        eps_threshold=EPS_END+(EPS_START-EPS_END)*math.exp(-1.0*self.steps_done/EPS_DECAY)
-        self.steps_done+=1
-        if sample>eps_threshold:
-            with torch.no_grad():return self.policy_net(state).max(1)[1].view(1,1)
-        else:return torch.tensor([[random.randrange(self.action_dim)]],dtype=torch.long)
-    def optimize_model(self):
-        if len(self.memory)<BATCH_SIZE:return
-        transitions=self.memory.sample(BATCH_SIZE)
-        batch=Transition(*zip(*transitions))
-        non_final_mask=torch.tensor(tuple(map(lambda s:s is not None,batch.next_state)),dtype=torch.bool)
-        non_final_next_states=torch.cat([s for s in batch.next_state if s is not None])
-        state_batch=torch.cat(batch.state)
-        action_batch=torch.cat(batch.action)
-        reward_batch=torch.cat(batch.reward)
-        state_action_values=self.policy_net(state_batch).gather(1,action_batch)
-        next_state_values=torch.zeros(BATCH_SIZE)
-        with torch.no_grad():next_state_values[non_final_mask]=self.target_net(non_final_next_states).max(1)[0]
-        expected_state_action_values=(next_state_values*GAMMA)+reward_batch
-        criterion=nn.SmoothL1Loss()
-        loss=criterion(state_action_values,expected_state_action_values.unsqueeze(1))
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(),100)
-        self.optimizer.step()
-    def update_target_net(self):self.target_net.load_state_dict(self.policy_net.state_dict())
-
-# ==============================================================================
-# 最终整合：使用真实LLM进行RL优化循环
-# ==============================================================================
-if __name__ == "__main__":
-    initial_prompt_config = {
-        "role": "You are a helpful assistant.",
-        "task": "Explain what a neural network is in a simple way.",
-        "constraints": []
-    }
-    
-    env = PromptOptimizerEnv(initial_prompt=initial_prompt_config)
-    
-    state_vec = env._create_state_vector() # 获取初始状态向量
-    state_dim = len(state_vec)
-    action_dim = len(env.action_space)
-    agent = DQNAgent(state_dim, action_dim)
-
-    # 可选：加载之前训练好的模型
-    MODEL_PATH = "dqn_agent_real_llm.pth"
-    if os.path.exists(MODEL_PATH):
-        agent.policy_net.load_state_dict(torch.load(MODEL_PATH))
-        agent.target_net.load_state_dict(agent.policy_net.state_dict())
-        print(f"✅ 从 {MODEL_PATH} 加载了已训练的模型！")
-
-    print("\n🚀 强化学习循环开始 (使用真实LLM评估) 🚀")
-    print("=" * 60)
-    print(f"初始提示词: \n{json.dumps(env.current_prompt, indent=2)}")
-    print(f"初始适应度: {env.metadata['fitness']}/10")
-    print("=" * 60)
-
-    num_episodes = 30 # 由于API调用耗时且可能产生费用，建议减少迭代次数
-    for i_episode in range(num_episodes):
-        print(f"\n----------- Episode {i_episode+1}/{num_episodes} -----------")
-        state = torch.tensor(env._create_state_vector(), dtype=torch.float32).unsqueeze(0)
-
-        action_tensor = agent.select_action(state)
-        chosen_action = action_tensor.item()
-        action_name = ActionFactory.ACTION_MAP[chosen_action]
-        print(f"1. [动作 A] 智能体选择动作: ({chosen_action}) -> {action_name}")
-        
-        print("2. [执行 S->S'] 环境正在处理动作...")
-        new_state_vec, reward_val, done, info = env.step(chosen_action)
-        
-        reward = torch.tensor([reward_val], dtype=torch.float32)
-        next_state = torch.tensor(new_state_vec, dtype=torch.float32).unsqueeze(0)
-        
-        agent.memory.push(state, action_tensor, next_state, reward)
-        agent.optimize_model()
-
-        if i_episode % TARGET_UPDATE == 0:
-            agent.update_target_net()
-        
-        print(f"4. [结果] 奖励 R: {info['reward']:.4f}, {'👍 采纳新提示词' if info['accepted_change'] else '👎 保留原提示词'}")
-        
-    print("\n="*60)
-    print("🏁 训练结束 🏁")
-    print("="*60)
-    
-    torch.save(agent.policy_net.state_dict(), MODEL_PATH)
-    print(f"✅ 模型已保存到 {MODEL_PATH}")
-    
-    print(f"\n最终优化后的提示词: \n{json.dumps(env.current_prompt, indent=2, ensure_ascii=False)}")
-    print(f"最终适应度: {env.metadata['fitness']}/10")
+    (...根据筛选结果继续生成后续分支...)
+</deliverable_format>
