@@ -1,0 +1,125 @@
+# 步骤 0: 安装必要的库
+# 如果你还没有安装这些库，请先运行这行命令
+# pip install sentence-transformers numpy torch
+
+import numpy as np
+from sentence_transformers import SentenceTransformer
+
+def parse_prompt(raw_prompt: str) -> dict:
+    """
+    一个简化的解析函数，将原始文本转换为结构化字典。
+    在实际应用中，这一步可能需要使用正则表达式、关键词分割，
+    甚至调用一个LLM来做结构化解析。
+    """
+    # 为了演示，我们直接手动创建这个结构。
+    structured_prompt = {
+        "role": "你是一名资深营销文案。",
+        "task": "为一款名为‘星尘咖啡’的新品写三条宣传标语。",
+        "constraints": [
+            "每条不超过15个字",
+            "风格要文艺且有想象力"
+        ],
+        "examples": [],
+        "format": ""
+    }
+    return structured_prompt
+
+def create_state_vector(raw_prompt: str, metadata: dict, model: SentenceTransformer) -> np.ndarray:
+    """
+    将原始提示词和元数据转换为一个完整的状态向量。
+
+    Args:
+        raw_prompt (str): 原始的提示词文本。
+        metadata (dict): 包含适应度等上下文信息的字典。
+        model (SentenceTransformer): 用于编码的预训练模型。
+
+    Returns:
+        np.ndarray: 最终拼接好的状态向量。
+    """
+    print("--- 步骤 1: 解析原始提示词 ---")
+    structured_prompt = parse_prompt(raw_prompt)
+    print("结构化提示词:")
+    print(structured_prompt)
+    print("-" * 20)
+
+    print("--- 步骤 2: 独立编码文本部分 ---")
+    embedding_dim = model.get_sentence_embedding_dimension()
+
+    # 编码角色和任务
+    role_vector = model.encode(structured_prompt['role'])
+    task_vector = model.encode(structured_prompt['task'])
+    print(f"角色向量维度: {role_vector.shape}")
+    print(f"任务向量维度: {task_vector.shape}")
+
+    # 编码约束列表（取平均值）
+    if structured_prompt['constraints']:
+        constraint_vectors = model.encode(structured_prompt['constraints'])
+        avg_constraint_vector = np.mean(constraint_vectors, axis=0)
+    else:
+        avg_constraint_vector = np.zeros(embedding_dim) # 使用零向量占位
+    print(f"平均约束向量维度: {avg_constraint_vector.shape}")
+    
+    # 对其他字段（如examples, format）也可以执行类似操作
+    # 这里为了简化，我们假设它们为空，并用零向量表示
+    avg_example_vector = np.zeros(embedding_dim)
+    format_vector = np.zeros(embedding_dim)
+    print("-" * 20)
+
+    print("--- 步骤 3: 提取并规范化上下文特征 ---")
+    # 注意：在实际训练循环中，数值型特征应该被规范化（例如缩放到0-1范围）
+    context_feature_vector = np.array([
+        metadata.get('fitness', 0.0),
+        metadata.get('token_count', 0),
+        metadata.get('num_constraints', len(structured_prompt.get('constraints', []))),
+        metadata.get('iterations_stuck', 0)
+    ])
+    print(f"上下文特征向量: {context_feature_vector}")
+    print(f"上下文特征向量维度: {context_feature_vector.shape}")
+    print("-" * 20)
+
+    print("--- 步骤 4: 拼接所有部分，形成最终状态向量 ---")
+    all_vectors = [
+        role_vector,
+        task_vector,
+        avg_constraint_vector,
+        avg_example_vector,
+        format_vector,
+        context_feature_vector
+    ]
+    
+    final_state_vector = np.concatenate(all_vectors)
+    print(f"最终状态向量的总维度: {final_state_vector.shape}")
+    print("-" * 20)
+
+    return final_state_vector
+
+# ================== 主程序入口 ==================
+if __name__ == "__main__":
+    # 1. 加载预训练模型 (这个过程可能需要几秒钟，只需要加载一次)
+    print("正在加载 SentenceTransformer 模型...")
+    # 'all-MiniLM-L6-v2' 是一个轻量且高效的模型，输出384维向量
+    encoder_model = SentenceTransformer('all-MiniLM-L6-v2')
+    print("模型加载完毕。")
+    print("=" * 30)
+
+    # 2. 准备输入数据
+    # 你的主迭代算法发现这个提示词陷入了局部最优
+    sample_raw_prompt = "你是一名资深营销文案。为一款名为‘星尘咖啡’的新品写三条宣传标语。要求：每条不超过15个字，风格要文艺且有想象力。"
+    
+    # 相关的上下文元数据
+    sample_metadata = {
+        "fitness": 0.92,
+        "token_count": 68,
+        "iterations_stuck": 5
+    }
+
+    # 3. 调用函数生成最终的状态向量
+    final_vector = create_state_vector(
+        raw_prompt=sample_raw_prompt,
+        metadata=sample_metadata,
+        model=encoder_model
+    )
+
+    print("\n✅ 生成完毕！")
+    print(f"最终状态向量的前10个值: {final_vector[:10]}")
+    print(f"这个维度为 {final_vector.shape[0]} 的向量，现在可以作为RL代理神经网络的输入了。")
