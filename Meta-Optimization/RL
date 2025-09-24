@@ -1,5 +1,6 @@
 # ==============================================================================
 # 步骤 0: 安装和导入所有必要的库
+# pip install sentence-transformers numpy torch
 # ==============================================================================
 import numpy as np
 from sentence_transformers import SentenceTransformer
