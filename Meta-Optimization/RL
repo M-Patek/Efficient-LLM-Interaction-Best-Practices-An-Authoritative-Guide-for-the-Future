@@ -268,3 +268,157 @@ if __name__ == "__main__":
     print("\n="*50)
     print("🏁 模拟结束 🏁")
     print("="*50)
+
+
+
+import random
+import copy
+import hashlib
+
+# ==============================================================================
+# 沿用之前的“动作”模块代码
+# ==============================================================================
+
+ROLE_LIBRARY = [
+    "You are a world-renowned historian specializing in the Renaissance.",
+    "You are a cutting-edge astrophysicist from MIT.",
+    "You are a Michelin 3-star chef with expertise in molecular gastronomy.",
+    "You are a cynical but brilliant detective from a noir film."
+]
+
+CONSTRAINT_LIBRARY = [
+    "Explain your reasoning step-by-step.",
+    "The final answer must be a single paragraph.",
+    "Avoid technical jargon and use simple language.",
+    "Output the result in a JSON format."
+]
+
+def add_expert_role(prompt: dict) -> dict:
+    new_prompt = copy.deepcopy(prompt)
+    chosen_role = random.choice(ROLE_LIBRARY)
+    new_prompt['role'] = chosen_role
+    return new_prompt
+
+def add_constraint(prompt: dict) -> dict:
+    new_prompt = copy.deepcopy(prompt)
+    chosen_constraint = random.choice(CONSTRAINT_LIBRARY)
+    if 'constraints' not in new_prompt:
+        new_prompt['constraints'] = []
+    new_prompt['constraints'].append(chosen_constraint)
+    return new_prompt
+
+ACTION_MAP = {
+    0: add_expert_role,
+    1: add_constraint,
+}
+
+# ==============================================================================
+# 步骤 1: 模拟适应度函数 (Fitness Function)
+# 在您的真实项目中，这将是您已经拥有的主迭代算法中的评估部分。
+# ==============================================================================
+
+def calculate_fitness(prompt: dict) -> float:
+    """
+    一个模拟的适应度计算函数。
+    它会根据提示词的内容给出一个“分数”。
+    为了让模拟更真实：
+    - 角色越具体，分数越高。
+    - 约束越多，分数越高。
+    - 我们还加入一些随机性，模拟评估中的噪声。
+    """
+    score = 0.5  # 基础分
+
+    # 角色越具体，得分越高
+    if "assistant" not in prompt.get('role', ''):
+        score += 0.25
+
+    # 约束越多，得分越高（但有上限）
+    score += min(0.2, len(prompt.get('constraints', [])) * 0.1)
+    
+    # 加入基于内容的哈希值，让相同的prompt得分稳定，不同的prompt得分不同
+    prompt_string = str(prompt)
+    hash_value = int(hashlib.md5(prompt_string.encode()).hexdigest(), 16)
+    randomness = (hash_value % 100) / 1000.0 # 产生一个-0.05到+0.05的稳定噪声
+    
+    final_score = score + randomness
+    
+    return round(final_score, 4)
+
+# ==============================================================================
+# 步骤 2: 实现方案A的奖励计算函数
+# ==============================================================================
+
+def calculate_reward_plan_a(prompt_old: dict, prompt_new: dict) -> tuple[float, float, float]:
+    """
+    根据方案A（直接奖励）计算奖励。
+
+    Args:
+        prompt_old (dict): 修改前的提示词。
+        prompt_new (dict): 修改后的提示词。
+
+    Returns:
+        tuple[float, float, float]: (新适应度, 旧适应度, 最终奖励)
+    """
+    # 评估旧提示词的适应度
+    fitness_old = calculate_fitness(prompt_old)
+
+    # 评估新提示词的适应度
+    fitness_new = calculate_fitness(prompt_new)
+
+    # 奖励 = 新适应度 - 旧适应度
+    reward = fitness_new - fitness_old
+
+    return fitness_new, fitness_old, round(reward, 4)
+
+# ==============================================================================
+# 步骤 3: 主程序 - 完整流程模拟
+# ==============================================================================
+if __name__ == "__main__":
+    # 设定一个初始的、有待优化的提示词
+    current_prompt = {
+        "role": "You are a helpful assistant.",
+        "task": "Explain what a neural network is.",
+        "constraints": []
+    }
+
+    print("="*60)
+    print("🚀 强化学习循环模拟开始 (方案A: 直接奖励) 🚀")
+    print("="*60)
+
+    # 模拟运行5次迭代
+    for i in range(5):
+        print(f"\n----------- Iteration {i+1} -----------")
+
+        # 1. 随机选择一个动作来修改当前提示词
+        chosen_action_index = random.choice(list(ACTION_MAP.keys()))
+        action_function = ACTION_MAP[chosen_action_index]
+        
+        print(f"当前提示词: {current_prompt}")
+        print(f"🤖 选择动作: {action_function.__name__}")
+        
+        # 2. 执行动作，生成新提示词
+        new_prompt = action_function(current_prompt)
+        print(f"生成的新提示词: {new_prompt}")
+
+        # 3. 计算奖励
+        f_new, f_old, calculated_reward = calculate_reward_plan_a(current_prompt, new_prompt)
+
+        print("-" * 20)
+        print(f"📊 适应度评估:")
+        print(f"  - 旧提示词适应度 (Fitness_old): {f_old}")
+        print(f"  - 新提示词适应度 (Fitness_new): {f_new}")
+        print("-" * 20)
+        
+        if calculated_reward > 0:
+            print(f"💰 计算奖励: {calculated_reward}  (这是一个积极奖励 👍)")
+            # 如果动作产生了积极效果，我们就采纳这个新提示词
+            current_prompt = new_prompt
+        elif calculated_reward < 0:
+            print(f"💰 计算奖励: {calculated_reward}  (这是一个消极奖励 👎)")
+            # 如果是消极效果，我们保留原提示词（在真实RL中，这次经历依然会被学习）
+        else:
+            print(f"💰 计算奖励: {calculated_reward}  (无变化)")
+    
+    print("\n="*60)
+    print("🏁 模拟结束 🏁")
+    print("="*60)
