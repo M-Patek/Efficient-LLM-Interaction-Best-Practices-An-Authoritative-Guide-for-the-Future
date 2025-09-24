@@ -293,6 +293,7 @@ class DQNAgent:
 # 最终整合：使用DQN Agent进行RL优化循环
 # ==============================================================================
 if __name__ == "__main__":
+    import os 
     # --- 初始化环境 ---
     initial_prompt_config = {
         "role": "You are a helpful assistant.",
@@ -307,6 +308,12 @@ if __name__ == "__main__":
     state_dim = len(state_vec)
     action_dim = len(env.action_space)
     agent = DQNAgent(state_dim, action_dim)
+
+    MODEL_PATH = "dqn_agent_model.pth"
+    if os.path.exists(MODEL_PATH):
+        agent.policy_net.load_state_dict(torch.load(MODEL_PATH))
+        agent.target_net.load_state_dict(agent.policy_net.state_dict()) # 确保两个网络同步
+        print(f"✅ 从 {MODEL_PATH} 加载了已训练的模型！")
 
     print("🚀 强化学习循环开始 (使用DQN Agent) 🚀")
     print("=" * 60)
@@ -350,5 +357,10 @@ if __name__ == "__main__":
     print("\n="*60)
     print("🏁 训练结束 🏁")
     print("="*60)
+
+    MODEL_PATH = "dqn_agent_model.pth"
+    torch.save(agent.policy_net.state_dict(), MODEL_PATH)
+    print(f"✅ 模型已保存到 {MODEL_PATH}")
+
     print(f"最终优化后的提示词: \n{json.dumps(env.current_prompt, indent=2, ensure_ascii=False)}")
     print(f"最终适应度: {env.metadata['fitness']}")
